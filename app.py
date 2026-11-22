@@ -7,18 +7,24 @@ import pandas as pd
 import requests
 import streamlit as st
 import plotly.express as px
+from cohort import DobClient, history_filter
+from cohort_ui import show_cohort
 
 DATASET_ID = 'w9ak-ipjd'
 API = f'https://data.cityofnewyork.us/resource/{DATASET_ID}.json'
 METADATA = f'https://data.cityofnewyork.us/api/views/{DATASET_ID}.json'
 TIMEOUT = 40
-APP_VERSION = '0.2-deploy'
+APP_VERSION = '0.3'
 
 
 st.set_page_config(page_title='DOB Research Lab', page_icon='🏗️', layout='wide')
 st.title('🏗️ NYC DOB Research Lab')
 st.caption(f'Version {APP_VERSION} · Independent exploration of public NYC DOB NOW filings and PAAs')
 st.info('DOB filing estimates are not contractor change-order prices or verified actual costs. Differences in an initial_cost field must not be called cost overruns.')
+
+if st.sidebar.radio('View', ['Existing filing explorer', 'Research cohort']) == 'Research cohort':
+    show_cohort()
+    st.stop()
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def schema():
@@ -58,14 +64,7 @@ def complete_job_history(job_root):
     root = job_root.strip().upper()
     if not re.fullmatch(r'[A-Z][0-9]{5,12}', root):
         raise ValueError('Enter the root job number, such as B00244768 (without -I1 or -P1).')
-    # Prefix matching fetches initial filing and amendments for the selected job.
-    query = {'$where': f"job_filing_number like '{root}-%'",
-             '$order': 'job_filing_number ASC', '$limit': 5000}
-    r = requests.get(API, params=query, timeout=TIMEOUT)
-    r.raise_for_status()
-    records = r.json()
-    if len(records) >= 5000:
-        raise ValueError('History exceeds the safety cap; completeness cannot be assumed.')
+    records = list(DobClient().pages(history_filter([root]), 'job_filing_number ASC, :id ASC'))
     return pd.DataFrame(records)
 
 def analyze(frame):
